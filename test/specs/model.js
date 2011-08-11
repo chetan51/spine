@@ -2,7 +2,7 @@ describe("Model", function(){
   var Asset;
   
   beforeEach(function(){
-    Asset = Spine.Model.setup("Asset", ["name"]);
+    Asset = Spine.Model.setup("Asset", "name");
   });
   
   it("can create records", function(){
@@ -124,7 +124,7 @@ describe("Model", function(){
     expect(JSON.stringify(asset)).toEqual('{"name":"Johnson me!"}');
   });
   
-  it("can be serialized from JSON", function(){
+  it("can be deserialized from JSON", function(){
     var asset = Asset.fromJSON('{"name":"Un-Johnson me!"}')
     expect(asset.name).toEqual("Un-Johnson me!");
     
@@ -188,27 +188,6 @@ describe("Model", function(){
     expect(clone.name).toEqual("checkout anytime");
   });
   
-  it("should be able to have models as attributes", function(){
-    var User = Spine.Model.setup("User", ["assets"]);
-    
-    User.include({
-      init: function(atts){
-        if (atts) this.load(atts);
-        var assets  = this.assets;
-        this.assets = Asset.sub();
-        if (assets) this.assets.refresh(assets.records || assets);
-      }
-    });
-    
-    var user = User.create({name: "that guy"});
-    expect(user.assets.attributes).toEqual(Asset.attributes);
-    
-    var asset = user.assets.create({name: "test.pdf"});
-    user.save();
-    
-    expect(User.first().assets.first()).toEqual(asset);
-  });
-  
   it("should be able to be subclassed", function(){
     Asset.extend({
       aProperty: true
@@ -217,7 +196,7 @@ describe("Model", function(){
     var File = Asset.setup("File");
     
     expect(File.aProperty).toBeTruthy();
-    expect(File.name).toBe("File");
+    expect(File.className).toBe("File");
     expect(File.attributes).toEqual(Asset.attributes);
   });
   
@@ -228,6 +207,23 @@ describe("Model", function(){
 
     expect(asset.dup(false).id).toBe(asset.id);
     expect(asset.dup(false).newRecord).toBeFalsy();
+  });
+  
+  it("should be able to change ID", function(){
+    var asset = Asset.create({name: "hotel california"});    
+    expect(asset.id).toBeTruthy();
+    asset.changeID("foo");
+    expect(asset.id).toBe("foo");
+    
+    expect(Asset.exists("foo")).toBeTruthy();
+  });
+  
+  it("eql should respect ID changes", function(){
+    var asset1 = Asset.create({name: "hotel california", id: "bar"});
+    var asset2 = asset1.dup(false);
+    
+    asset1.changeID("foo");
+    expect(asset1.eql(asset2)).toBeTruthy();
   });
   
   describe("with spy", function(){
@@ -328,5 +324,35 @@ describe("Model", function(){
       var asset = Asset.create({name: "cartoon world.png"});
       asset.updateAttributes({name: "lonely heart.png"});
     });
+    
+    it("should be able to unbind instance events", function(){      
+      var asset = Asset.create({name: "cartoon world.png"});
+      
+      asset.bind("save", spy);      
+      asset.unbind();
+      asset.save();
+      
+      expect(spy).not.toHaveBeenCalled();
+    });
+    
+    it("should unbind events on instance destroy", function(){
+      var asset = Asset.create({name: "cartoon world.png"});
+      
+      asset.bind("save", spy);
+      asset.destroy();
+      
+      asset.trigger("save", asset);
+      expect(spy).not.toHaveBeenCalled();
+    });
+    
+    it("callbacks should still work on ID changes", function(){
+      var asset = Asset.create({name: "hotel california", id: "bar"});
+      asset.bind("test", spy);
+      asset.changeID("foo");
+      
+      asset = Asset.find("foo");
+      asset.trigger("test", asset);
+      expect(spy).toHaveBeenCalled();
+    })
   });
 });
