@@ -3,10 +3,13 @@
 $ = jQuery ? require("jqueryify")
 
 $.fn.item = ->
-  item = $(@).tmplItem().data
-  item.reload?()
+  item = $(@)
+  item = item.data("item") or item.tmplItem?().data
+  item?.reload?()
+  item
 
-$.fn.forItem = ->
+$.fn.forItem = (item) ->
   @filter ->
     compare = $(@).item()
     return item.eql?(compare) or item is compare
+

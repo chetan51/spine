@@ -5,8 +5,7 @@ describe("Routing", function(){
   var navigate = function(str, callback){
     window.location.hash = str;
     waits(50);
-    if (callback)
-      runs(callback);
+    if (callback) { runs(callback); }
   };
   
   beforeEach(function(){
@@ -33,6 +32,11 @@ describe("Routing", function(){
     expect(window.location.hash).toEqual("#/users/2");
   });
   
+  it("can add regex route", function(){
+    Route.add(/\/users\/(\d+)/);
+    expect(Route.routes).toBeTruthy();
+  });
+  
   it("can trigger routes", function(){
      Route.add({
        "/users":  $.proxy(spy, jasmine),
@@ -54,7 +58,7 @@ describe("Routing", function(){
      });
      
      navigate("/users/1/2", function(){
-       expect(spy).toHaveBeenCalledWith({match: ["/users/1/2", "1", "2"], id: "1", id2: "2"});
+       expect(spy).toHaveBeenCalledWith([{match: ["/users/1/2", "1", "2"], id: "1", id2: "2"}]);
      });
    });
    
@@ -64,7 +68,7 @@ describe("Routing", function(){
      });
      
      navigate("/page/gah", function(){
-       expect(spy.mostRecentCall.args).toEqual([{match:["/page/gah", "gah"]}]);
+       expect(spy.mostRecentCall.args).toEqual([{match: ["/page/gah", "gah"]}]);
      });
    });
    

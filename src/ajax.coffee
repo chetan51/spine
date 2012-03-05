@@ -1,186 +1,204 @@
-Spine ?= require("spine")
+Spine ?= require('spine')
 $      = Spine.$
 Model  = Spine.Model
 
 Ajax =
-  enabled:  true
-  pending:  false
-  requests: []
   getURL: (object) ->
     object and object.url?() or object.url
 
-  disable: (callback) ->
-    @enabled = false
-    callback()
-    @enabled = true
+  enabled:  true
+  pending:  false
+  requests: []
 
+  disable: (callback) ->
+    if @enabled    
+      @enabled = false
+      do callback
+      @enabled = true
+    else
+      do callback
+    
   requestNext: ->
     next = @requests.shift()
     if next
-      @request.apply(@, next)
+      @request(next)
     else
       @pending = false
 
-  request: (params) ->
-    success = params.success
-    error = params.error
-    params.error= =>
-      error?(arguments...)
-      @requestNext()
-    params.success = =>
-      success?(arguments...)
-      @requestNext()
-    $.ajax(params)
-
-  send: ->
+  request: (callback) ->
+    (do callback).complete(=> do @requestNext)
+      
+  queue: (callback) ->
     return unless @enabled
     if @pending
-      @requests.push(arguments)
+      @requests.push(callback)
     else
       @pending = true
-      @request(arguments...)
+      @request(callback)    
+    callback
     
 class Base
   defaults:
-    contentType: "application/json"
-    dataType: "json"
+    contentType: 'application/json'
+    dataType: 'json'
     processData: false
+    headers: {'X-Requested-With': 'XMLHttpRequest'}
   
-  send: (params, defaults) ->
-    Ajax.send($.extend({}, @defaults, defaults, params))
+  ajax: (params, defaults) ->
+    $.ajax($.extend({}, @defaults, defaults, params))
+    
+  queue: (callback) ->
+    Ajax.queue(callback)
 
 class Collection extends Base
   constructor: (@model) -> 
-    super
-    @url = Ajax.getURL(@model)
     
-  findAll: (params) ->
-    @send params,
-          type:    "GET",
-          url:     @url,
-          success: @recordsResponse(params)
-          error: @errorResponse(params)
+  find: (id, params) ->
+    record = new @model(id: id)
+    @ajax(
+      params,
+      type: 'GET',
+      url:  Ajax.getURL(record)
+    ).success(@recordsResponse)
+     .error(@errorResponse)
     
-  fetch: ->
-    @findAll success: (records) =>
-      @model.refresh(records)
+  all: (params) ->
+    @ajax(
+      params,
+      type: 'GET',
+      url:  Ajax.getURL(@model)
+    ).success(@recordsResponse)
+     .error(@errorResponse)
     
-  recordsResponse: (params) =>
-    success = params.success
-    
-    (data, status, xhr) =>
-      model.trigger("ajaxSuccess", null, status, xhr)
-      success?(@model.fromJSON(data))
+  fetch: (params = {}, options = {}) ->
+    if id = params.id
+      delete params.id
+      @find(id, params).success (record) =>
+        @model.refresh(record, options)
+    else
+      @all(params).success (records) =>
+        @model.refresh(records, options)
 
-  errorResponse: (params = {}) =>
-    error = params.error
+  # Private
 
-    (jqXHR, statusText, error) =>
-      @record.trigger("ajaxError", @record, jqXHR, statusText, error)
-      error?(@model)
+  recordsResponse: (data, status, xhr) =>
+    @model.trigger('ajaxSuccess', null, status, xhr)
 
+  errorResponse: (xhr, statusText, error) =>
+    @model.trigger('ajaxError', null, xhr, statusText, error)
 
 class Singleton extends Base
   constructor: (@record) ->
-    super
     @model = @record.constructor
-    @url   = Ajax.getURL(@record)
-    @base  = Ajax.getURL(@model)
   
-  find: (params) ->
-    @send params,
-          type: "GET"
-          url:  @url
+  reload: (params, options) ->
+    @queue =>
+      @ajax(
+        params,
+        type: 'GET'
+        url:  Ajax.getURL(@record)
+      ).success(@recordResponse(options))
+       .error(@errorResponse(options))
   
-  create: (params) ->
-    @send params,
-          type:    "POST"
-          data:    JSON.stringify(@record)
-          url:     @base
-          success: @recordResponse(params)
-          error: @errorResponse(params)
+  create: (params, options) ->
+    @queue =>
+      @ajax(
+        params,
+        type: 'POST'
+        data: JSON.stringify(@record)
+        url:  Ajax.getURL(@model)
+      ).success(@recordResponse(options))
+       .error(@errorResponse(options))
 
-
-  update: (params) ->
-    @send params,
-          type:    "PUT"
-          data:    JSON.stringify(@record)
-          url:     @url
-          success: @recordResponse(params)
-          error: @errorResponse(params)
-
+  update: (params, options) ->
+    @queue =>
+      @ajax(
+        params,
+        type: 'PUT'
+        data: JSON.stringify(@record)
+        url:  Ajax.getURL(@record)
+      ).success(@recordResponse(options))
+       .error(@errorResponse(options))
   
-  destroy: (params) ->
-    @send params,
-          type:    "DELETE"
-          url:     @url
-          success: @blankResponse(params)
-          error: @errorResponse(params)
-  
+  destroy: (params, options) ->
+    @queue =>
+      @ajax(
+        params,
+        type: 'DELETE'
+        url:  Ajax.getURL(@record)
+      ).success(@recordResponse(options))
+       .error(@errorResponse(options))
+
   # Private
 
-  recordResponse: (params = {}) =>
-    success = params.success
-  
+  recordResponse: (options = {}) =>
     (data, status, xhr) =>
-      @record.trigger("ajaxSuccess", @record, status, xhr)
-
-      return if not data or params.data is data
-      data = @model.fromJSON(data)
-
+      if Spine.isBlank(data)
+        data = false
+      else
+        data = @model.fromJSON(data)
+    
       Ajax.disable =>
-        # ID change, need to do some shifting
-        if data.id and @record.id isnt data.id
-          @record.changeID(data.id)
+        if data
+          # ID change, need to do some shifting
+          if data.id and @record.id isnt data.id
+            @record.changeID(data.id)
 
-        # Update with latest data
-        @record.updateAttributes(data.attributes())
+          # Update with latest data
+          @record.updateAttributes(data.attributes())
+        
+      @record.trigger('ajaxSuccess', data, status, xhr)
+      options.success?.apply(@record)
       
-      success?(@record)
-      
-  blankResponse: (params = {}) =>
-    success = params.success
-  
-    (data, status, xhr) =>
-      @record.trigger("ajaxSuccess", @record, status, xhr)
-
-      success?(@record)
-
-  errorResponse: (params = {}) =>
-    error = params.error
-
-    (jqXHR, statusText, error) =>
-      @record.trigger("ajaxError", @record, jqXHR, statusText, error)
-
-      error?(@record)
+  errorResponse: (options = {}) =>
+    (xhr, statusText, error) =>
+      @record.trigger('ajaxError', xhr, statusText, error)
+      options.error?.apply(@record)
 
 # Ajax endpoint
-Model.host = ""
+Model.host = ''
 
 Include =
   ajax: -> new Singleton(this)
 
-  url: ->
-    base = Ajax.getURL(@constructor)
-    base += "/" unless base.charAt(base.length - 1) is "/"
-    base += encodeURIComponent(@id)
-    base
-
-Model.Ajax =
+  url: (args...) ->
+    url = Ajax.getURL(@constructor)
+    url += '/' unless url.charAt(url.length - 1) is '/'
+    url += encodeURIComponent(@id)
+    args.unshift(url)
+    args.join('/')
+    
+Extend = 
   ajax: -> new Collection(this)
 
+  url: (args...) ->
+    args.unshift(@className.toLowerCase() + 's')
+    args.unshift(Model.host)
+    args.join('/')
+      
+Model.Ajax =
   extended: ->
-    @change (record, type) ->
-      record.ajax()[type]()
-      
-    @fetch ->
-      @ajax().fetch(arguments...)
-      
+    @fetch @ajaxFetch
+    @change @ajaxChange
+    
+    @extend Extend
     @include Include
 
-  url: ->
-    "#{Model.host}/#{@className.toLowerCase()}s"
+  # Private
+
+  ajaxFetch: ->
+    @ajax().fetch(arguments...)
+    
+  ajaxChange: (record, type, options = {}) ->
+    return if options.ajax is false
+    record.ajax()[type](options.ajax, options)
+    
+Model.Ajax.Methods = 
+  extended: ->
+    @extend Extend
+    @include Include
     
 # Globals
+Ajax.defaults   = Base::defaults
 Spine.Ajax      = Ajax
 module?.exports = Ajax

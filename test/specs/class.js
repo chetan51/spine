@@ -18,28 +18,24 @@ describe("Class", function(){
   });
   
   it("can create instance", function(){
-    User.include({instanceProperty: true})
+    User.include({instanceProperty: true});
     
-    var Bob = User.init();
+    var Bob = new User();
     expect(Bob).toBeTruthy();
     expect(Bob.instanceProperty).toBeTruthy();
   });
   
   it("can be extendable", function(){
-    User.extend({
-      classProperty: true
-    });
+    User.extend({classProperty: true});
     
     expect(User.classProperty).toBeTruthy();
   });
   
   it("can be includable", function(){
-    User.include({
-      instanceProperty: true
-    });
+    User.include({instanceProperty: true});
     
     expect(User.prototype.instanceProperty).toBeTruthy();
-    expect(User.init().instanceProperty).toBeTruthy();
+    expect((new User()).instanceProperty).toBeTruthy();
   });
   
   it("should trigger module callbacks", function(){
@@ -60,5 +56,5 @@ describe("Class", function(){
   it("include/extend should raise without arguments", function(){
     expect(function(){ User.include(); }).toThrow();
     expect(function(){ User.extend(); }).toThrow();
-  })
+  });
 });
